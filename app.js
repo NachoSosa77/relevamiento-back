@@ -3,7 +3,7 @@ const cors = require('cors'); // Importa el paquete cors
 //const mongoose = require('mongoose');
 const authRoutes = require('./routes/auth');
 const config = require('./config');
-
+const db = require('./db');
 const app = express();
 
 // Opciones de CORS (puedes personalizarlas)
@@ -29,6 +29,17 @@ app.use(express.json());
 
 // Rutas de autenticación
 app.use('/api/auth', authRoutes);
+
+app.get('/api/users', (req, res) => {
+  db.query('SELECT * FROM users', (err, results)=>{
+    if (err) {
+      console.error('Error en la consulta:', err);
+      res.status(500).json({ error: 'Error en la consulta' });
+            return;
+    }
+    res.status(200).json(results);    
+  });
+}); 
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Servidor corriendo en el puerto ${PORT}`));

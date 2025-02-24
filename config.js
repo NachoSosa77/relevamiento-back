@@ -1,4 +1,13 @@
+/* module.exports = {
+
+  dbHost: 'vps-4706926-x.dattaweb.com', // O la dirección de tu servidor MySQL
+  dbUser: 'censo',
+  dbPassword: 'Censo!2025',
+  dbName: 'censo2025',  
+}; */
 module.exports = {
-  db: 'mongodb://localhost:27017/nombre_de_tu_base_de_datos', // Reemplaza con tu URI de MongoDB
-  jwtSecret: 'tu_secreto_jwt', // Reemplaza con un secreto seguro para JWT
+  dbHost: 'localhost', // O la dirección de tu servidor MySQL
+  dbUser: 'root',
+  dbPassword: '',
+  dbName: 'bot-baileys',  
 };

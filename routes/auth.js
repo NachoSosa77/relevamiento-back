@@ -2,70 +2,150 @@ const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
-//const User = require('../models/User');
-const config = require('../config');
-
-const users = [];
+const db = require('../db');
 
 // Ruta de registro
-router.post('/register', async (req, res) => {
+router.post('/register', (req, res) => {
+  console.log('Petición POST a /register recibida');
+
   try {
-    const { email, password } = req.body;
+      const { nombre, apellido, email, password } = req.body;
 
-    // Verifica si el usuario ya existe
-    const existingUserIndex = users.findIndex(user => user.email === email);
-    if (existingUserIndex !== -1) {
-      return res.status(400).json({ message: 'El usuario ya existe' });
-    }
+      // 1. Verifica si el usuario ya existe
+      db.query('SELECT * FROM users WHERE email = ?', [email], (err, result) => {
+          if (err) {
+              console.error('Error en la consulta:', err);
+              return res.status(500).json({ message: 'Error en el registro' });
+          }
 
-    // Hash de la contraseña
-    const hashedPassword = await bcrypt.hash(password, 10);
+          if (result.length > 0) {
+              return res.status(400).json({ error: 'El email ya está registrado' });
+          }
 
-    // Crea un nuevo usuario
-    const newUser = { email, password: hashedPassword };
-    users.push(newUser);
+          // 2. Hash de la contraseña
+          bcrypt.hash(password, 10, (err, hashedPassword) => {
+              if (err) {
+                  console.error('Error al hashear la contraseña:', err);
+                  return res.status(500).json({ error: 'Error en el registro' });
+              }
 
-    res.status(201).json({ message: 'Usuario registrado exitosamente' });
+              // 3. Inserta el nuevo usuario en la base de datos
+              db.query('INSERT INTO users (nombre, apellido, email, password) VALUES (?, ?, ?, ?)', [nombre, apellido, email, hashedPassword], (err, result) => {
+                  if (err) {
+                      console.error('Error en la consulta:', err);
+                      return res.status(500).json({ error: 'Error en el registro' });
+                  }
+
+                  // 4. Genera un token JWT
+                  const token = jwt.sign({ id: result.insertId }, 'relevamiento-secret', { expiresIn: '1h' });
+
+                  // 5. Envía la respuesta con el token
+                  res.status(201).json({ token });
+              });
+          });
+      });
   } catch (error) {
-    console.error('aca hay error', error);
-    res.status(500).json({ message: 'Error en el registro' });
+      console.error('Error inesperado:', error);
+      res.status(500).json({ message: 'Error inesperado en el registro' });
   }
-  console.log('USERS', users);
 });
 
 // Ruta de inicio de sesión
-router.post('/login', async (req, res) => {
+router.post('/login', (req, res) => {
+  const { email, password } = req.body;
   try {
-    const { email, password } = req.body;
+      // 1. Verifica si el usuario existe
+      db.query('SELECT * FROM users WHERE email = ?', [email], (err, result) => {
+        //console.log("Email recibido:", email);
+        //console.log("Contraseña recibida:", password);
+        //console.log("Resultado de la consulta:", result);
+          if (err) {
+              console.error('Error en la consulta:', err);
+              return res.status(500).json({ message: 'Error en el inicio de sesión' });
+          }
 
-    // Verifica si el usuario existe
-    const user = users.find(user => user.email === email);
+          if (result.length === 0) { // Usuario no encontrado
+              return res.status(401).json({ message: 'Credenciales inválidas' });
+          }
 
-    if (!user) {
-      return res.status(401).json({ message: 'Credenciales inválidas' });
-    }
+          const user = result[0];// Obtén el primer usuario (debería ser único por email)
+          const hashedPasswordFromDB = user.password; // Para mayor claridad
+          //console.log("Contraseña enviada desde el frontend:", password);
+          //console.log("Contraseña hasheada en la base de datos:", hashedPasswordFromDB);
+          // 2. Compara la contraseña ingresada con la contraseña hasheada
+          bcrypt.compare(password, hashedPasswordFromDB, (err, passwordMatch) => {
+            console.log("Resultado de la comparación:", passwordMatch);
+              if (err) {
+                  console.error("Error al comparar contraseñas:", err);
+                  return res.status(500).json({ message: 'Error en el inicio de sesión' });
+              }
 
-    // Compara la contraseña ingresada con la contraseña hasheada en la base de datos
-    try {
-      const passwordMatch = await bcrypt.compare(password, user.password);
-    if (!passwordMatch) {
-      return res.status(401).json({ message: 'Credenciales inválidas' });
-    }} catch (error) {
-      console.error("Error al comparar contraseñas:", error);
-      return res.status(500).json({ message: 'Error en el inicio de sesión' });
-    }
+              if (!passwordMatch) {
+                  return res.status(401).json({ message: 'Credenciales inválidas' });
+              }
 
-    const userId = user.email;
+              const payload = {
+                id: user.id,
+                nombre: user.nombre,
+                apellido: user.apellido,
+                email: user.email,
+                role: user.role,
+              }
 
-    // Genera un token JWT
-    const token = jwt.sign({ userId }, config.jwtSecret, { expiresIn: '1h' });
+              // 3. Genera un token JWT
+              const token = jwt.sign(payload, 'relevamiento-secret', { expiresIn: '1h' }); // Usa el ID del usuario
 
-    res.json({ token });
+              // 4. Envía la respuesta con el token
+              res.json({ token });
+          });
+      });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'Error en el inicio de sesión' });
+      console.error("Error inesperado:", error);
+      res.status(500).json({ message: 'Error inesperado en el inicio de sesión' });
   }
-  console.log('USERS LOGIN', users);
+});
+
+// Ruta Establecimientos
+router.get('/instituciones', (req, res) => {
+  db.query('SELECT * FROM instituciones', (err, result) => {
+      if (err) {
+          console.error('Error al obtener las instituciones:', err);
+          return res.status(500).json({ message: 'Error al obtener las instituciones' });
+          return;
+      }
+      res.json(result);
+  });
+});
+
+// Ruta para obtener un establecimiento por CUE
+router.get('/instituciones/:cui', (req, res) => {
+  const cui = req.params.cui;
+  db.query('SELECT * FROM instituciones WHERE cui = ?', [cui], (err, results) => { // Usa un marcador de posición ?
+    if (err) {
+      console.error('Error al obtener establecimiento por CUE:', err);
+      res.status(500).json({ message: 'Error al obtener establecimiento por CUE' });
+      return;
+    }
+
+    if (results.length > 0) {
+      res.json(results); // Devuelve el primer resultado (debería ser único)
+    } else {
+      res.status(404).json({ message: 'Establecimiento no encontrado' });
+    }
+  });
+});
+
+// Ruta para cargar establecimientos
+router.post('/instituciones', (req, res) => {
+  const { departameto, localidad, modalidad_nivel, institucion, cui, matricula, calle, calle_numero, referencia, provincia } = req.body;
+  db.query('INSERT INTO instituciones (departameto, localidad, modalidad_nivel, institucion, cui, matricula, calle, calle_numero, referencia, provincia) VALUES (?,?)', [nombre, cui, direccion, telefono, email, web, latitud, longitud], (err, result) => {
+    if (err) {
+      console.error('Error al insertar establecimiento:', err);
+      res.status(500).json({ message: 'Error al insertar establecimiento' });
+      return;
+    }
+    res.status(201).json({ message: 'Establecimiento insertado correctamente' });
+  });
 });
 
 module.exports = router;
