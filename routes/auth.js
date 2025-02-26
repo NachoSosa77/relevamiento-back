@@ -105,47 +105,6 @@ router.post('/login', (req, res) => {
   }
 });
 
-// Ruta Establecimientos
-router.get('/instituciones', (req, res) => {
-  db.query('SELECT * FROM instituciones', (err, result) => {
-      if (err) {
-          console.error('Error al obtener las instituciones:', err);
-          return res.status(500).json({ message: 'Error al obtener las instituciones' });
-          return;
-      }
-      res.json(result);
-  });
-});
 
-// Ruta para obtener un establecimiento por CUE
-router.get('/instituciones/:cui', (req, res) => {
-  const cui = req.params.cui;
-  db.query('SELECT * FROM instituciones WHERE cui = ?', [cui], (err, results) => { // Usa un marcador de posición ?
-    if (err) {
-      console.error('Error al obtener establecimiento por CUE:', err);
-      res.status(500).json({ message: 'Error al obtener establecimiento por CUE' });
-      return;
-    }
-
-    if (results.length > 0) {
-      res.json(results); // Devuelve el primer resultado (debería ser único)
-    } else {
-      res.status(404).json({ message: 'Establecimiento no encontrado' });
-    }
-  });
-});
-
-// Ruta para cargar establecimientos
-router.post('/instituciones', (req, res) => {
-  const { departameto, localidad, modalidad_nivel, institucion, cui, matricula, calle, calle_numero, referencia, provincia } = req.body;
-  db.query('INSERT INTO instituciones (departameto, localidad, modalidad_nivel, institucion, cui, matricula, calle, calle_numero, referencia, provincia) VALUES (?,?)', [nombre, cui, direccion, telefono, email, web, latitud, longitud], (err, result) => {
-    if (err) {
-      console.error('Error al insertar establecimiento:', err);
-      res.status(500).json({ message: 'Error al insertar establecimiento' });
-      return;
-    }
-    res.status(201).json({ message: 'Establecimiento insertado correctamente' });
-  });
-});
 
 module.exports = router;
