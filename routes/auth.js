@@ -2,109 +2,80 @@ const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
-const db = require('../db');
+const dbMiddleware = require('../middleware/dbMiddleware');
 
-// Ruta de registro
-router.post('/register', (req, res) => {
-  console.log('Petición POST a /register recibida');
+router.post('/register', dbMiddleware, async (req, res) => {
+    console.log('Petición POST a /register recibida');
+    const { nombre, apellido, email, password } = req.body;
+    try {
+        const connection = req.db; // Obtiene la conexión de req.db
 
-  try {
-      const { nombre, apellido, email, password } = req.body;
+        // 1. Verifica si el usuario ya existe
+        const [existingUsers] = await connection.query('SELECT * FROM users WHERE email = ?', [email]);
+        if (existingUsers.length > 0) {
+            return res.status(400).json({ error: 'El email ya está registrado' });
+        }
 
-      // 1. Verifica si el usuario ya existe
-      db.query('SELECT * FROM users WHERE email = ?', [email], (err, result) => {
-          if (err) {
-              console.error('Error en la consulta:', err);
-              return res.status(500).json({ message: 'Error en el registro' });
-          }
+        // 2. Hash de la contraseña
+        const hashedPassword = await bcrypt.hash(password, 10);
 
-          if (result.length > 0) {
-              return res.status(400).json({ error: 'El email ya está registrado' });
-          }
+        // 3. Inserta el nuevo usuario en la base de datos
+        const [result] = await connection.query('INSERT INTO users (nombre, apellido, email, password) VALUES (?, ?, ?, ?)', [nombre, apellido, email, hashedPassword]);
 
-          // 2. Hash de la contraseña
-          bcrypt.hash(password, 10, (err, hashedPassword) => {
-              if (err) {
-                  console.error('Error al hashear la contraseña:', err);
-                  return res.status(500).json({ error: 'Error en el registro' });
-              }
+        // 4. Genera un token JWT
+        const token = jwt.sign({ id: result.insertId }, 'relevamiento-secret', { expiresIn: '1h' });
 
-              // 3. Inserta el nuevo usuario en la base de datos
-              db.query('INSERT INTO users (nombre, apellido, email, password) VALUES (?, ?, ?, ?)', [nombre, apellido, email, hashedPassword], (err, result) => {
-                  if (err) {
-                      console.error('Error en la consulta:', err);
-                      return res.status(500).json({ error: 'Error en el registro' });
-                  }
-
-                  // 4. Genera un token JWT
-                  const token = jwt.sign({ id: result.insertId }, 'relevamiento-secret', { expiresIn: '1h' });
-
-                  // 5. Envía la respuesta con el token
-                  res.status(201).json({ token });
-              });
-          });
-      });
-  } catch (error) {
-      console.error('Error inesperado:', error);
-      res.status(500).json({ message: 'Error inesperado en el registro' });
-  }
+        // 5. Envía la respuesta con el token
+        res.status(201).json({ token });
+    } catch (error) {
+        console.error('Error en el registro:', error);
+        res.status(500).json({ message: 'Error en el registro' });
+    } finally {
+        if (req.db) req.db.release(); // Libera la conexión
+    }
 });
 
 // Ruta de inicio de sesión
-router.post('/login', (req, res) => {
-  const { email, password } = req.body;
-  try {
-      // 1. Verifica si el usuario existe
-      db.query('SELECT * FROM users WHERE email = ?', [email], (err, result) => {
-        //console.log("Email recibido:", email);
-        //console.log("Contraseña recibida:", password);
-        //console.log("Resultado de la consulta:", result);
-          if (err) {
-              console.error('Error en la consulta:', err);
-              return res.status(500).json({ message: 'Error en el inicio de sesión' });
-          }
+router.post('/login', dbMiddleware, async (req, res) => {
+    const { email, password } = req.body;
+    try {
+        const connection = req.db; // Obtiene la conexión de req.db
+        // 1. Verifica si el usuario existe
+        const [users] = await connection.query('SELECT * FROM users WHERE email = ?', [email]);
 
-          if (result.length === 0) { // Usuario no encontrado
-              return res.status(401).json({ message: 'Credenciales inválidas' });
-          }
+        if (users.length === 0) {
+            return res.status(401).json({ message: 'Credenciales inválidas' });
+        }
 
-          const user = result[0];// Obtén el primer usuario (debería ser único por email)
-          const hashedPasswordFromDB = user.password; // Para mayor claridad
-          //console.log("Contraseña enviada desde el frontend:", password);
-          //console.log("Contraseña hasheada en la base de datos:", hashedPasswordFromDB);
-          // 2. Compara la contraseña ingresada con la contraseña hasheada
-          bcrypt.compare(password, hashedPasswordFromDB, (err, passwordMatch) => {
-            console.log("Resultado de la comparación:", passwordMatch);
-              if (err) {
-                  console.error("Error al comparar contraseñas:", err);
-                  return res.status(500).json({ message: 'Error en el inicio de sesión' });
-              }
+        const user = users[0];
+        const hashedPasswordFromDB = user.password;
 
-              if (!passwordMatch) {
-                  return res.status(401).json({ message: 'Credenciales inválidas' });
-              }
+        // 2. Compara la contraseña ingresada con la contraseña hasheada
+        const passwordMatch = await bcrypt.compare(password, hashedPasswordFromDB);
 
-              const payload = {
-                id: user.id,
-                nombre: user.nombre,
-                apellido: user.apellido,
-                email: user.email,
-                role: user.role,
-              }
+        if (!passwordMatch) {
+            return res.status(401).json({ message: 'Credenciales inválidas' });
+        }
 
-              // 3. Genera un token JWT
-              const token = jwt.sign(payload, 'relevamiento-secret', { expiresIn: '1h' }); // Usa el ID del usuario
+        const payload = {
+            id: user.id,
+            nombre: user.nombre,
+            apellido: user.apellido,
+            email: user.email,
+            role: user.role,
+        };
 
-              // 4. Envía la respuesta con el token
-              res.json({ token });
-          });
-      });
-  } catch (error) {
-      console.error("Error inesperado:", error);
-      res.status(500).json({ message: 'Error inesperado en el inicio de sesión' });
-  }
+        // 3. Genera un token JWT
+        const token = jwt.sign(payload, 'relevamiento-secret', { expiresIn: '1h' });
+
+        // 4. Envía la respuesta con el token
+        res.json({ token });
+    } catch (error) {
+        console.error("Error inesperado:", error);
+        res.status(500).json({ message: 'Error inesperado en el inicio de sesión' });
+    } finally {
+        if (req.db) req.db.release(); // Libera la conexión
+    }
 });
-
-
 
 module.exports = router;
